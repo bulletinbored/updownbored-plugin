@@ -1,0 +1,60 @@
+.updownbored {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.updownbored-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #8a8f98;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.05s ease;
+}
+
+.updownbored-btn:hover {
+    background: #f0f2f5;
+    color: #4a4f57;
+}
+
+.updownbored-btn:active {
+    transform: scale(0.92);
+}
+
+.updownbored-up.active {
+    background: rgba(40, 167, 69, 0.12);
+    color: #28a745;
+}
+
+.updownbored-down.active {
+    background: rgba(220, 53, 69, 0.12);
+    color: #dc3545;
+}
+
+.updownbored-score {
+    font-size: 14px;
+    font-weight: 700;
+    color: #4a4f57;
+    min-width: 24px;
+    text-align: center;
+    line-height: 1.2;
+}
+
+.updownbored-score.positive {
+    color: #28a745;
+}
+
+.updownbored-score.negative {
+    color: #dc3545;
+}
