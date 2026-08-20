@@ -59,8 +59,7 @@ function updownbored_init() {
     $head = '<link href="' . $cssUrl . '" rel="stylesheet">' . "\n";
     $head .= '<script>window.updownbored = window.updownbored || {};window.updownbored.apiUrl = ' . json_encode($apiUrl) . ';window.updownbored.baseUrl = ' . json_encode($baseUrl) . ';window.updownbored.csrfToken = ' . json_encode($csrfToken) . ';window.updownbored.currentUserId = ' . json_encode($_SESSION['user_id'] ?? 0) . ';</script>' . "\n";
 
-    $footer = '<script src="' . $jsUrl . '"></script>' . "\n";
-    $footer .= '<script>setTimeout(function(){window.updownbored = window.updownbored || {};window.updownbored.init && window.updownbored.init();}, 0);</script>' . "\n";
+    $footer = '<script src="' . $jsUrl . '" onload="window.updownbored=window.updownbored||{};window.updownbored.init&&window.updownbored.init()"></script>' . "\n";
 
     $pluginManager->addHook('frontend_before_render', function() use ($head) {
         echo $head;

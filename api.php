@@ -1,6 +1,8 @@
 <?php
-session_start();
-require_once __DIR__ . '/../../config.php';
+// Load the app bootstrap so the session uses the same save path / cookie
+// settings as the rest of the site. Without it, session_start() here would
+// create a brand new (empty) session and every vote request would 403.
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 header('Content-Type: application/json');
 

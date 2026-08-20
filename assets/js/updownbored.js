@@ -64,6 +64,11 @@
                 } catch (e) {
                     console.error('updownbored: failed to parse response', e);
                 }
+            } else if (xhr.status === 403) {
+                console.warn('updownbored: login required to vote');
+                w.wrap.title = 'Devi effettuare il login per votare';
+            } else {
+                console.error('updownbored: vote failed with status ' + xhr.status);
             }
         };
         xhr.send(
@@ -136,8 +141,9 @@
         inject();
         if (document.addEventListener) {
             var mo = window.MutationObserver;
-            if (mo && document.querySelector('.post')) {
-                var target = document.querySelector('.post').parentNode;
+            var firstPost = document.querySelector('.post');
+            if (mo && firstPost) {
+                var target = firstPost.parentNode;
                 var obs = new mo(function () { inject(); });
                 obs.observe(target, { childList: true, subtree: true });
             }
