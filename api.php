@@ -3,6 +3,7 @@
 // settings as the rest of the site. Without it, session_start() here would
 // create a brand new (empty) session and every vote request would 403.
 require_once __DIR__ . '/../../src/bootstrap.php';
+require_once __DIR__ . '/../../src/helpers.php';
 
 header('Content-Type: application/json');
 
@@ -123,10 +124,12 @@ if ($method === 'POST') {
         $check->execute([$postId, $_SESSION['user_id']]);
         $existing = $check->fetchColumn();
 
+        $changed = false;
         if ($existing === false) {
             if ($vote !== 0) {
                 $pdo->prepare("INSERT INTO post_votes (post_id, user_id, vote) VALUES (?, ?, ?)")
                     ->execute([$postId, $_SESSION['user_id'], $vote]);
+                $changed = true;
             }
         } else {
             if ($vote === 0) {
@@ -135,6 +138,34 @@ if ($method === 'POST') {
             } else {
                 $pdo->prepare("UPDATE post_votes SET vote = ? WHERE post_id = ? AND user_id = ?")
                     ->execute([$vote, $postId, $_SESSION['user_id']]);
+                $changed = true;
+            }
+        }
+
+        // Notify the post author about the vote (updownbored owns this). Skip
+        // self-votes and removals/un-votes.
+        if ($changed && $vote !== 0) {
+            $postStmt = $pdo->prepare("
+                SELECT p.user_id, p.thread_id, t.title
+                FROM posts p
+                LEFT JOIN threads t ON p.thread_id = t.id
+                WHERE p.id = ?
+            ");
+            $postStmt->execute([$postId]);
+            $postInfo = $postStmt->fetch(PDO::FETCH_ASSOC);
+            $voterName = $_SESSION['username'] ?? 'Someone';
+            $threadId = (int)($postInfo['thread_id'] ?? 0);
+            $threadTitle = $postInfo['title'] ?? '';
+            $authorId = (int)($postInfo['user_id'] ?? 0);
+            if ($authorId > 0 && $authorId !== (int)$_SESSION['user_id'] && $threadId > 0) {
+                $voteLink = url('thread', ['id' => $threadId, 'slug' => slugify($threadTitle)], true);
+                $voteType = $vote === 1 ? 'upvote' : 'downvote';
+                $notifMsg = t('vote_notification', [
+                    'voter' => escape($voterName),
+                    'type' => $voteType,
+                    'title' => escape($threadTitle),
+                ]);
+                create_notification($pdo, $authorId, 'vote', $notifMsg, $notifMsg, $voteLink);
             }
         }
 

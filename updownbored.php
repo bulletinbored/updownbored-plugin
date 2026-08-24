@@ -55,12 +55,12 @@ function updownbored_init() {
     $cssUrl = $udVer('assets/css/updownbored.css');
     $jsUrl = $udVer('assets/js/updownbored.js');
     $csrfToken = htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES);
-    $nonce = $_SERVER['CSP_NONCE'] ?? '';
+    $nonce = function_exists('csp_nonce') ? csp_nonce() : '';
 
     $head = '<link href="' . $cssUrl . '" rel="stylesheet">' . "\n";
     $head .= '<script nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '">window.updownbored = window.updownbored || {};window.updownbored.apiUrl = ' . json_encode($apiUrl) . ';window.updownbored.baseUrl = ' . json_encode($baseUrl) . ';window.updownbored.csrfToken = ' . json_encode($csrfToken) . ';window.updownbored.currentUserId = ' . json_encode($_SESSION['user_id'] ?? 0) . ';</script>' . "\n";
 
-    $footer = '<script src="' . $jsUrl . '"></script>' . "\n";
+    $footer = '<script src="' . $jsUrl . '" nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '"></script>' . "\n";
 
     $pluginManager->addHook('frontend_before_render', function() use ($head) {
         echo $head;

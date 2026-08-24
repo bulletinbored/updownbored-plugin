@@ -156,4 +156,10 @@
 
     window.updownbored = window.updownbored || {};
     window.updownbored.init = init;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
