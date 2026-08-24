@@ -1,6 +1,6 @@
 {
     "name": "updownbored",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "mlzog",
     "description": "Upvote and downvote individual posts",
     "bootstrap": "updownbored.php"
