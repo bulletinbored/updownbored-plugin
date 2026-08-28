@@ -29,10 +29,10 @@ function updownbored_init() {
                     user_id INT NOT NULL,
                     vote TINYINT NOT NULL DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE KEY uniq_post_user (post_id, user_id)
+                    UNIQUE KEY uniq_post_user (post_id, user_id),
+                    INDEX idx_post_votes_post_id (post_id)
                 )
             ");
-            try { $pdo->exec("CREATE INDEX idx_post_votes_post_id ON post_votes(post_id)"); } catch (Throwable $e) {}
         } else {
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS post_votes (
@@ -57,8 +57,9 @@ function updownbored_init() {
     $csrfToken = htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES);
     $nonce = function_exists('csp_nonce') ? csp_nonce() : '';
 
+    $sortLabel = t('sort_votes', [], 'plugin:updownbored');
     $head = '<link href="' . $cssUrl . '" rel="stylesheet">' . "\n";
-    $head .= '<script nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '">window.updownbored = window.updownbored || {};window.updownbored.apiUrl = ' . json_encode($apiUrl) . ';window.updownbored.baseUrl = ' . json_encode($baseUrl) . ';window.updownbored.csrfToken = ' . json_encode($csrfToken) . ';window.updownbored.currentUserId = ' . json_encode($_SESSION['user_id'] ?? 0) . ';</script>' . "\n";
+    $head .= '<script nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '">window.updownbored = window.updownbored || {};window.updownbored.apiUrl = ' . json_encode($apiUrl) . ';window.updownbored.baseUrl = ' . json_encode($baseUrl) . ';window.updownbored.csrfToken = ' . json_encode($csrfToken) . ';window.updownbored.currentUserId = ' . json_encode($_SESSION['user_id'] ?? 0) . ';window.updownbored.sortLabel = ' . json_encode($sortLabel) . ';</script>' . "\n";
 
     $footer = '<script src="' . $jsUrl . '" nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '"></script>' . "\n";
 

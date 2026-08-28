@@ -11,13 +11,16 @@ $baseUrl = rtrim(!empty($config['base_url']) ? $config['base_url'] : preg_replac
 $pluginUrl = $baseUrl . '/plugins/updownbored';
 $apiUrl = $pluginUrl . '/api.php';
 
-if (!isset($_SESSION['user_id'])) {
+$method = $_SERVER['REQUEST_METHOD'];
+
+// Allow thread_scores without login (public read-only data)
+$isPublicAction = ($method === 'GET' && ($_GET['action'] ?? '') === 'thread_scores');
+
+if (!isset($_SESSION['user_id']) && !$isPublicAction) {
     http_response_code(403);
     echo json_encode(['error' => 'Login required']);
     exit;
 }
-
-$method = $_SERVER['REQUEST_METHOD'];
 
 if (($config['db_driver'] ?? 'sqlite') === 'mysql') {
     $pdo = new PDO(
@@ -82,6 +85,48 @@ function updownbored_user_votes($pdo, $userId, $postIds) {
 }
 
 if ($method === 'GET') {
+    $action = $_GET['action'] ?? '';
+
+    if ($action === 'thread_scores') {
+        $raw = $_GET['thread_ids'] ?? '';
+        $threadIds = array_filter(array_map('intval', explode(',', $raw)), function ($v) { return $v > 0; });
+
+        if (empty($threadIds)) {
+            echo json_encode(['success' => true, 'scores' => []]);
+            exit;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($threadIds), '?'));
+        $stmt = $pdo->prepare("
+            SELECT p.thread_id,
+                   SUM(CASE WHEN pv.vote = 1 THEN 1 ELSE 0 END) AS up,
+                   SUM(CASE WHEN pv.vote = -1 THEN 1 ELSE 0 END) AS down,
+                   SUM(pv.vote) AS score
+            FROM post_votes pv
+            INNER JOIN posts p ON p.id = pv.post_id
+            WHERE p.thread_id IN ($placeholders)
+            AND p.status = 'visible'
+            GROUP BY p.thread_id
+        ");
+        $stmt->execute($threadIds);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $scores = [];
+        foreach ($rows as $row) {
+            $scores[(int)$row['thread_id']] = [
+                'score' => (int)$row['score'],
+                'up' => (int)$row['up'],
+                'down' => (int)$row['down'],
+            ];
+        }
+
+        echo json_encode([
+            'success' => true,
+            'scores' => $scores,
+        ]);
+        exit;
+    }
+
     $raw = $_GET['post_ids'] ?? '';
     $postIds = array_filter(array_map('intval', explode(',', $raw)), function ($v) { return $v > 0; });
 

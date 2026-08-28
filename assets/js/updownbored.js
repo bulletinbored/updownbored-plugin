@@ -5,6 +5,7 @@
     var apiUrl = (window.updownbored && window.updownbored.apiUrl) || '';
     var csrfToken = (window.updownbored && window.updownbored.csrfToken) || '';
     var currentUserId = (window.updownbored && window.updownbored.currentUserId) || 0;
+    var sortLabel = (window.updownbored && window.updownbored.sortLabel) || 'Votes';
 
     function getPostId(article) {
         var raw = article.getAttribute('data-post-id');
@@ -137,8 +138,121 @@
         xhr.send();
     }
 
+    // --- Thread sorting by votes ---
+
+    function getThreadId(discussion) {
+        var link = discussion.querySelector('.discussion-title a');
+        if (!link) return null;
+        var href = link.getAttribute('href') || '';
+        // URL format: /thread/5-title-slug
+        var match = href.match(/thread\/(\d+)/);
+        return match ? parseInt(match[1], 10) : null;
+    }
+
+    function injectSortOption() {
+        var sortBar = document.querySelector('.sort-bar');
+        if (!sortBar) return;
+        if (sortBar.querySelector('[data-sort="votes"]')) return;
+
+        var link = document.createElement('a');
+        link.className = 'sort-link';
+        link.setAttribute('data-sort', 'votes');
+        link.href = window.location.pathname + '?sort=votes';
+        link.textContent = sortLabel;
+
+        sortBar.appendChild(link);
+    }
+
+    function sortThreadsByVotes() {
+        var list = document.querySelector('.discussion-list');
+        if (!list) return;
+
+        var discussions = Array.prototype.slice.call(list.querySelectorAll('.discussion'));
+        if (discussions.length === 0) return;
+
+        var threadIds = [];
+        discussions.forEach(function (d) {
+            var id = getThreadId(d);
+            if (id) threadIds.push(id);
+        });
+
+        if (threadIds.length === 0) return;
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', apiUrl + '?action=thread_scores&thread_ids=' + encodeURIComponent(threadIds.join(',')), true);
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4 || xhr.status !== 200) return;
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (!data.success) return;
+
+                discussions.sort(function (a, b) {
+                    var idA = getThreadId(a);
+                    var idB = getThreadId(b);
+                    var scoreA = data.scores[idA] ? data.scores[idA].score : 0;
+                    var scoreB = data.scores[idB] ? data.scores[idB].score : 0;
+                    if (scoreB !== scoreA) return scoreB - scoreA;
+
+                    var stickyA = a.querySelector('.pill-sticky') ? 1 : 0;
+                    var stickyB = b.querySelector('.pill-sticky') ? 1 : 0;
+                    if (stickyB !== stickyA) return stickyB - stickyA;
+
+                    return 0;
+                });
+
+                discussions.forEach(function (d) {
+                    list.appendChild(d);
+                });
+            } catch (e) {
+                console.error('updownbored: failed to sort threads', e);
+            }
+        };
+        xhr.send();
+    }
+
+    function updateSortActiveState() {
+        var params = new URLSearchParams(window.location.search);
+        var currentSort = params.get('sort') || 'latest';
+
+        var sortBar = document.querySelector('.sort-bar');
+        if (!sortBar) return;
+
+        sortBar.querySelectorAll('.sort-link').forEach(function (link) {
+            var sortKey = link.getAttribute('data-sort');
+            if (sortKey) {
+                link.classList.toggle('active', sortKey === currentSort);
+            } else {
+                var href = link.getAttribute('href') || '';
+                var hrefParams = new URLSearchParams(href.split('?')[1] || '');
+                link.classList.toggle('active', hrefParams.get('sort') === currentSort);
+            }
+        });
+    }
+
+    function initSort() {
+        injectSortOption();
+        updateSortActiveState();
+
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('sort') === 'votes') {
+            sortThreadsByVotes();
+        }
+
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest && e.target.closest('.sort-link[data-sort="votes"]');
+            if (link) {
+                e.preventDefault();
+                var url = new URL(window.location.href);
+                url.searchParams.set('sort', 'votes');
+                window.location.href = url.toString();
+            }
+        });
+    }
+
     function init() {
         inject();
+        initSort();
         if (document.addEventListener) {
             var mo = window.MutationObserver;
             var firstPost = document.querySelector('.post');
