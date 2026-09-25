@@ -165,26 +165,35 @@ if ($method === 'POST') {
             exit;
         }
 
-        $check = $pdo->prepare("SELECT vote FROM post_votes WHERE post_id = ? AND user_id = ?");
-        $check->execute([$postId, $_SESSION['user_id']]);
-        $existing = $check->fetchColumn();
+        // Only allow voting on posts that exist and are visible.
+        $postCheck = $pdo->prepare("SELECT id FROM posts WHERE id = ? AND status = 'visible'");
+        $postCheck->execute([$postId]);
+        if (!$postCheck->fetchColumn()) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Post not found']);
+            exit;
+        }
+
+        if (!rate_limit('updownbored_vote', 60, 300, (string)$_SESSION['user_id'])) {
+            http_response_code(429);
+            echo json_encode(['error' => 'Too many requests']);
+            exit;
+        }
 
         $changed = false;
-        if ($existing === false) {
-            if ($vote !== 0) {
-                $pdo->prepare("INSERT INTO post_votes (post_id, user_id, vote) VALUES (?, ?, ?)")
-                    ->execute([$postId, $_SESSION['user_id'], $vote]);
-                $changed = true;
-            }
+        if ($vote === 0) {
+            $pdo->prepare("DELETE FROM post_votes WHERE post_id = ? AND user_id = ?")
+                ->execute([$postId, $_SESSION['user_id']]);
         } else {
-            if ($vote === 0) {
-                $pdo->prepare("DELETE FROM post_votes WHERE post_id = ? AND user_id = ?")
-                    ->execute([$postId, $_SESSION['user_id']]);
+            // Atomic upsert: the (post_id, user_id) unique index prevents
+            // duplicate rows under concurrent requests.
+            if (($config['db_driver'] ?? 'sqlite') === 'mysql') {
+                $upsert = "INSERT INTO post_votes (post_id, user_id, vote) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE vote = VALUES(vote)";
             } else {
-                $pdo->prepare("UPDATE post_votes SET vote = ? WHERE post_id = ? AND user_id = ?")
-                    ->execute([$vote, $postId, $_SESSION['user_id']]);
-                $changed = true;
+                $upsert = "INSERT INTO post_votes (post_id, user_id, vote) VALUES (?, ?, ?) ON CONFLICT(post_id, user_id) DO UPDATE SET vote = excluded.vote";
             }
+            $pdo->prepare($upsert)->execute([$postId, $_SESSION['user_id'], $vote]);
+            $changed = true;
         }
 
         // Notify the post author about the vote (updownbored owns this). Skip
