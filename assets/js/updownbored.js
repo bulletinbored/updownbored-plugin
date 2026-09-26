@@ -7,10 +7,16 @@
     var currentUserId = (window.updownbored && window.updownbored.currentUserId) || 0;
     var sortLabel = (window.updownbored && window.updownbored.sortLabel) || 'Votes';
 
-    function getPostId(article) {
+    // Returns the vote target for an article. The opening post has no posts row
+    // (its body lives on threads), so its vote is stored per-thread; replies are
+    // stored per-post. For the OP data-post-id is the thread id.
+    function getTarget(article) {
         var raw = article.getAttribute('data-post-id');
-        var pid = raw !== null ? parseInt(raw, 10) : 0;
-        return pid > 0 ? pid : null;
+        var id = raw !== null ? parseInt(raw, 10) : 0;
+        if (id <= 0) return null;
+        var isOp = article.getAttribute('data-is-op') === '1'
+            || article.classList.contains('post-op');
+        return { type: isOp ? 'thread' : 'post', id: id };
     }
 
     function buildWidget() {
@@ -41,7 +47,7 @@
         return { wrap: wrap, up: up, down: down, score: score };
     }
 
-    function applyState(w, postId, score, myVote) {
+    function applyState(w, score, myVote) {
         w.score.textContent = score;
         w.up.classList.toggle('active', myVote === 1);
         w.down.classList.toggle('active', myVote === -1);
@@ -49,7 +55,7 @@
         w.score.classList.toggle('negative', score < 0);
     }
 
-    function sendVote(postId, vote, w) {
+    function sendVote(target, vote, w) {
         var xhr = new XMLHttpRequest();
         xhr.open('POST', apiUrl, true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -60,7 +66,7 @@
                 try {
                     var data = JSON.parse(xhr.responseText);
                     if (data.success) {
-                        applyState(w, data.post_id, data.score, data.my_vote);
+                        applyState(w, data.score, data.my_vote);
                     }
                 } catch (e) {
                     console.error('updownbored: failed to parse response', e);
@@ -72,8 +78,10 @@
                 console.error('updownbored: vote failed with status ' + xhr.status);
             }
         };
+        var isThread = target.type === 'thread';
         xhr.send(
-            'action=vote&post_id=' + encodeURIComponent(postId) +
+            'action=' + (isThread ? 'vote_thread' : 'vote') +
+            (isThread ? '&thread_id=' : '&post_id=') + encodeURIComponent(target.id) +
             '&vote=' + encodeURIComponent(vote) +
             '&csrf_token=' + encodeURIComponent(csrfToken)
         );
@@ -81,15 +89,17 @@
 
     function inject() {
         var articles = document.querySelectorAll('.post');
-        var pending = [];
+        var pendingPosts = [];
+        var pendingThreads = [];
 
         articles.forEach(function (article) {
             if (article.querySelector('.updownbored')) return;
-            var postId = getPostId(article);
-            if (!postId) return;
+            var target = getTarget(article);
+            if (!target) return;
 
             var w = buildWidget();
-            w.wrap.setAttribute('data-post-id', postId);
+            w.wrap.setAttribute('data-vote-type', target.type);
+            w.wrap.setAttribute('data-vote-id', target.id);
 
             var side = article.querySelector('.post-side');
             if (side) {
@@ -100,36 +110,50 @@
 
             w.up.addEventListener('click', function () {
                 var myVote = w.up.classList.contains('active') ? 0 : 1;
-                sendVote(postId, myVote, w);
+                sendVote(target, myVote, w);
             });
             w.down.addEventListener('click', function () {
                 var myVote = w.down.classList.contains('active') ? 0 : -1;
-                sendVote(postId, myVote, w);
+                sendVote(target, myVote, w);
             });
 
-            pending.push(postId);
+            if (target.type === 'thread') {
+                pendingThreads.push(target.id);
+            } else {
+                pendingPosts.push(target.id);
+            }
         });
 
-        if (pending.length === 0) return;
+        if (pendingPosts.length === 0 && pendingThreads.length === 0) return;
+
+        var query = [];
+        if (pendingPosts.length) query.push('post_ids=' + encodeURIComponent(pendingPosts.join(',')));
+        if (pendingThreads.length) query.push('thread_ids=' + encodeURIComponent(pendingThreads.join(',')));
 
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', apiUrl + '?post_ids=' + encodeURIComponent(pending.join(',')), true);
+        xhr.open('GET', apiUrl + '?' + query.join('&'), true);
         xhr.setRequestHeader('Accept', 'application/json');
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4 || xhr.status !== 200) return;
             try {
                 var data = JSON.parse(xhr.responseText);
                 if (!data.success) return;
+                var postScores = data.scores || {};
+                var threadScores = data.thread_scores || {};
+                var myPostVotes = data.my_votes || {};
+                var myThreadVotes = data.my_thread_votes || {};
+
                 document.querySelectorAll('.updownbored').forEach(function (el) {
-                    var pid = parseInt(el.getAttribute('data-post-id'), 10);
-                    var s = data.scores[pid] || { score: 0 };
-                    var v = data.my_votes[pid] || 0;
+                    var type = el.getAttribute('data-vote-type');
+                    var id = parseInt(el.getAttribute('data-vote-id'), 10);
+                    var s = type === 'thread' ? (threadScores[id] || { score: 0 }) : (postScores[id] || { score: 0 });
+                    var v = type === 'thread' ? (myThreadVotes[id] || 0) : (myPostVotes[id] || 0);
                     applyState({
                         wrap: el,
                         up: el.querySelector('.updownbored-up'),
                         down: el.querySelector('.updownbored-down'),
                         score: el.querySelector('.updownbored-score')
-                    }, pid, s.score, v);
+                    }, s.score, v);
                 });
             } catch (e) {
                 console.error('updownbored: failed to load scores', e);
@@ -149,10 +173,19 @@
         return match ? parseInt(match[1], 10) : null;
     }
 
+    // The "Votes" sort option is rendered server-side by updownbored.php via the
+    // thread_sort_options filter. This is only a fallback for cores without that
+    // filter: returns true when the option is already present.
     function injectSortOption() {
         var sortBar = document.querySelector('.sort-bar');
-        if (!sortBar) return;
-        if (sortBar.querySelector('[data-sort="votes"]')) return;
+        if (!sortBar) return false;
+
+        var existing = sortBar.querySelectorAll('.sort-link');
+        for (var i = 0; i < existing.length; i++) {
+            if (existing[i].getAttribute('data-sort') === 'votes') return true;
+            var href = existing[i].getAttribute('href') || '';
+            if (/[?&]sort=votes(?:&|$)/.test(href)) return true;
+        }
 
         var link = document.createElement('a');
         link.className = 'sort-link';
@@ -161,6 +194,7 @@
         link.textContent = sortLabel;
 
         sortBar.appendChild(link);
+        return false;
     }
 
     function sortThreadsByVotes() {
@@ -234,6 +268,10 @@
         injectSortOption();
         updateSortActiveState();
 
+        // Always re-apply the ordering client-side on the visible page. The
+        // server already sorts globally, but this guarantees the rendered order
+        // matches the vote scores even if the server-side sort filter is not
+        // deployed/active (e.g. older core or stale OPcache).
         var params = new URLSearchParams(window.location.search);
         if (params.get('sort') === 'votes') {
             sortThreadsByVotes();

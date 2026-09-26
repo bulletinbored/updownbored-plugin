@@ -33,6 +33,19 @@ function updownbored_init() {
                     INDEX idx_post_votes_post_id (post_id)
                 )
             ");
+            // The opening post is stored on threads (not as a posts row), so its
+            // votes live in their own table and are summed with the replies.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS thread_votes (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    thread_id INT NOT NULL,
+                    user_id INT NOT NULL,
+                    vote TINYINT NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_thread_user (thread_id, user_id),
+                    INDEX idx_thread_votes_thread_id (thread_id)
+                )
+            ");
         } else {
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS post_votes (
@@ -45,6 +58,19 @@ function updownbored_init() {
                 )
             ");
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_post_votes_post_id ON post_votes(post_id)");
+            // The opening post is stored on threads (not as a posts row), so its
+            // votes live in their own table and are summed with the replies.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS thread_votes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    thread_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    vote INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (thread_id, user_id)
+                )
+            ");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_thread_votes_thread_id ON thread_votes(thread_id)");
         }
     }
 
@@ -69,5 +95,32 @@ function updownbored_init() {
 
     $pluginManager->addHook('footer_before_render', function() use ($footer) {
         echo $footer;
+    });
+
+    // Sorting discussions by vote score is owned by this plugin. It adds the
+    // "Votes" option to the core sort bar and supplies the matching ORDER BY
+    // clause so the whole thread list is sorted server-side (and paginated)
+    // by the summed score of each thread's visible posts.
+    $pluginManager->addHook('thread_sort_options', function($options) use ($sortLabel) {
+        if (is_array($options)) {
+            $options['votes'] = $sortLabel;
+        }
+        return $options;
+    });
+
+    $pluginManager->addHook('thread_order_by', function($orderBy, $sort) {
+        if ($sort !== 'votes') {
+            return $orderBy;
+        }
+        // Total score = opening-post votes (thread_votes) + votes on every
+        // visible reply (post_votes) + legacy opening-post votes that old
+        // versions stored in post_votes keyed by the thread id (no posts row).
+        return "(
+            (SELECT COALESCE(SUM(tv.vote), 0) FROM thread_votes tv WHERE tv.thread_id = t.id)
+            +
+            (SELECT COALESCE(SUM(pv.vote), 0) FROM post_votes pv INNER JOIN posts p ON p.id = pv.post_id WHERE p.thread_id = t.id AND p.status = 'visible')
+            +
+            (SELECT COALESCE(SUM(lv.vote), 0) FROM post_votes lv WHERE lv.post_id = t.id AND NOT EXISTS (SELECT 1 FROM posts lp WHERE lp.id = lv.post_id) AND NOT EXISTS (SELECT 1 FROM thread_votes tvx WHERE tvx.thread_id = t.id AND tvx.user_id = lv.user_id))
+        ) DESC, t.id DESC";
     });
 }
